@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
-	"todo/models"
+	"todo/internal/models"
 )
+
+const layoutDate = "20060102"
 
 func (s *APIServer) NextDateHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -19,7 +23,7 @@ func (s *APIServer) NextDateHandler() http.HandlerFunc {
 			http.Error(w, "не заданы параметры", http.StatusBadRequest)
 			return
 		}
-		now, err := time.Parse("20060102", nowParam)
+		now, err := time.Parse(layoutDate, nowParam)
 		if err != nil {
 			http.Error(w, "неверный формат времени", http.StatusBadRequest)
 			return
@@ -51,6 +55,7 @@ func (s *APIServer) ApiTaskMethods() http.HandlerFunc {
 }
 
 func (s *APIServer) AddTask(w http.ResponseWriter, r *http.Request) {
+	// var task *models.Task
 	var task *models.Task
 
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
@@ -64,10 +69,10 @@ func (s *APIServer) AddTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Date == "" {
-		task.Date = time.Now().Format("20060102")
+		task.Date = time.Now().Format(layoutDate)
 	}
 
-	taskDate, err := time.Parse("20060102", task.Date)
+	taskDate, err := time.Parse(layoutDate, task.Date)
 	if err != nil {
 		http.Error(w, `{"error":"неправильный формат даты"}`, http.StatusBadRequest)
 		return
@@ -77,10 +82,10 @@ func (s *APIServer) AddTask(w http.ResponseWriter, r *http.Request) {
 	today := now.Truncate(24 * time.Hour)
 	taskDateTruncated := taskDate.Truncate(24 * time.Hour)
 	if taskDateTruncated.Equal(today) {
-		task.Date = today.Format("20060102")
+		task.Date = today.Format(layoutDate)
 	} else if taskDate.Before(now) {
 		if task.Repeat == "" {
-			task.Date = now.Format("20060102")
+			task.Date = now.Format(layoutDate)
 		} else {
 			nextDate, err := NextDate(now, task.Date, task.Repeat)
 			if err != nil {
@@ -148,7 +153,6 @@ func (s *APIServer) GetTasks() http.HandlerFunc {
 
 func (s *APIServer) GetTask(w http.ResponseWriter, r *http.Request) {
 	var task models.Task
-	var needRepeat bool
 
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -156,7 +160,7 @@ func (s *APIServer) GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	selectedID, _, err := s.store.GetTask(id, &task, needRepeat)
+	selectedID, err := s.store.GetTaskByID(id, &task)
 	if err != nil {
 		http.Error(w, `{"error": "Задача не найдена"}`, http.StatusBadRequest)
 		return
@@ -187,10 +191,10 @@ func (s *APIServer) UpdateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Date == "" {
-		task.Date = time.Now().Format("20060102")
+		task.Date = time.Now().Format(layoutDate)
 	}
 
-	taskDate, err := time.Parse("20060102", task.Date)
+	taskDate, err := time.Parse(layoutDate, task.Date)
 	if err != nil {
 		http.Error(w, `{"error":"Неверная дата"}`, http.StatusBadRequest)
 		return
@@ -206,28 +210,18 @@ func (s *APIServer) UpdateTask(w http.ResponseWriter, r *http.Request) {
 			}
 			task.Date = nextDate
 		} else {
-			task.Date = now.Format("20060102")
+			task.Date = now.Format(layoutDate)
 		}
 	}
 
-	rowsAffected, errStr := s.store.UpdateTask(task, false, "")
-	if errStr != "" {
-		if errStr == "Ошибка обновления в базе данных" {
-			http.Error(w, `{"error":"Ошибка обновления в базе данных"}`, http.StatusInternalServerError)
-			return
-		}
-		if errStr == "Ошибка при получении результата обновления" {
-			http.Error(w, `{"error":"Ошибка при задачи для обновления"}`, http.StatusInternalServerError)
-			return
-		}
-	}
-	if rowsAffected == 0 {
-		http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
+	err = s.store.UpdateTask(task)
+	if err != nil {
+		http.Error(w, `{"error":"Ошибка обновления в базе данных"}`, http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{}`))
+	_, _ = w.Write([]byte(`{}`))
 }
 
 func (s *APIServer) DeleteTask(w http.ResponseWriter, r *http.Request) {
@@ -237,31 +231,20 @@ func (s *APIServer) DeleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rowsAffected, errStr := s.store.DeleteTask(taskID)
-	if errStr != "" {
-		if errStr == "Ошибка при удалении задачи" {
-			http.Error(w, `{"error":"Ошибка при удалении задачи"}`, http.StatusInternalServerError)
-			return
-		}
-		if errStr == "Ошибка при поиске задачи для удаления" {
-			http.Error(w, `{"error":"Ошибка получения информации об удалении"}`, http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if rowsAffected == 0 {
-		http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
+	err := s.store.DeleteTask(taskID)
+	if err != nil {
+		http.Error(w, `{"error":"Ошибка при удалении задачи"}`, http.StatusInternalServerError)
 		return
+
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{}`))
+	_, _ = w.Write([]byte(`{}`))
 }
 
 func (s *APIServer) DoneTask() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var task models.Task
-		needUpdateOnlyDate := true
 
 		id := r.URL.Query().Get("id")
 		if id == "" {
@@ -269,7 +252,7 @@ func (s *APIServer) DoneTask() http.HandlerFunc {
 			return
 		}
 
-		selectedID, repeat, err := s.store.GetTask(id, &task, needUpdateOnlyDate)
+		selectedID, repeat, err := s.store.GetRepeatByID(id, &task)
 		if err != nil {
 			http.Error(w, `{"error": "Задача не найдена"}`, http.StatusBadRequest)
 			return
@@ -279,20 +262,9 @@ func (s *APIServer) DoneTask() http.HandlerFunc {
 		task.Repeat = repeat
 
 		if task.Repeat == "" {
-			rowsAffected, errStr := s.store.DeleteTask(task.Id)
-			if errStr != "" {
-				if errStr == "Ошибка при удалении задачи" {
-					http.Error(w, `{"error":"Ошибка при удалении задачи"}`, http.StatusInternalServerError)
-					return
-				}
-				if errStr == "Ошибка при поиске задачи для удаления" {
-					http.Error(w, `{"error":"Ошибка получения информации об удалении"}`, http.StatusInternalServerError)
-					return
-				}
-			}
-
-			if rowsAffected == 0 {
-				http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
+			err := s.store.DeleteTask(task.Id)
+			if err != nil {
+				http.Error(w, `{"error":"Ошибка при удалении задачи"}`, http.StatusInternalServerError)
 				return
 			}
 		}
@@ -305,24 +277,68 @@ func (s *APIServer) DoneTask() http.HandlerFunc {
 				return
 			}
 
-			rowsAffected, errStr := s.store.UpdateTask(task, true, nextDate)
-			if errStr != "" {
-				if errStr == "Ошибка обновления в базе данных" {
-					http.Error(w, `{"error":"Ошибка обновления в базе данных"}`, http.StatusInternalServerError)
-					return
-				}
-				if errStr == "Ошибка при получении результата обновления" {
-					http.Error(w, `{"error":"Ошибка при задачи для обновления"}`, http.StatusInternalServerError)
-					return
-				}
-			}
-			if rowsAffected == 0 {
-				http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
+			err = s.store.SetDate(task, nextDate)
+			if err != nil {
+				http.Error(w, `{"error":"Ошибка обновления в базе данных"}`, http.StatusInternalServerError)
 				return
 			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{}`))
+		_, _ = w.Write([]byte(`{}`))
+	}
+}
+
+func NextDate(now time.Time, date string, repeat string) (string, error) {
+	dateTime, err := time.Parse(layoutDate, date)
+
+	if err != nil {
+		return "", fmt.Errorf("ошибка при разборе даты: %v", err)
+	}
+
+	if repeat == "" {
+		return "", fmt.Errorf("правило повторения не задано")
+	}
+
+	rep_slice := strings.Split(repeat, " ")
+
+	if len(rep_slice) < 1 {
+		return "", fmt.Errorf("неправильный формат правила повторения")
+	}
+
+	switch rep_slice[0] {
+	case "d":
+		if len(rep_slice) < 2 {
+			return "", fmt.Errorf("не указано количество дней")
+		}
+		interval, err := strconv.Atoi(rep_slice[1])
+		if err != nil || interval < 1 || interval > 400 {
+			return "", fmt.Errorf("некорретный интервал для повторения")
+		}
+
+		if dateTime.After(now) {
+			dateTime = dateTime.AddDate(0, 0, interval)
+		}
+		for dateTime.Before(now) {
+			dateTime = dateTime.AddDate(0, 0, interval)
+		}
+
+		return dateTime.Format(layoutDate), nil
+
+	case "y":
+		if dateTime.After(now) {
+			dateTime = dateTime.AddDate(1, 0, 0)
+		}
+
+		for dateTime.Before(now) {
+			dateTime = dateTime.AddDate(1, 0, 0)
+		}
+
+		nextDateValue := dateTime.Format(layoutDate)
+
+		return nextDateValue, nil
+
+	default:
+		return "", fmt.Errorf("неподдерживаемый формат правила повторения")
 	}
 }

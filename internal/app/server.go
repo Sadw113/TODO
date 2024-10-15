@@ -3,7 +3,7 @@ package app
 import (
 	"net/http"
 	"os"
-	"todo/internal/app/store"
+	"todo/store"
 )
 
 type APIServer struct {
