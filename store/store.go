@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"todo/internal/models"
 
 	_ "modernc.org/sqlite"
@@ -141,33 +142,19 @@ func (s *Store) GetTasks(tasks *[]models.Task) error {
 	return nil
 }
 
-func (s *Store) GetTaskByID(id string, task *models.Task) (int64, error) {
-	var selectedID int64
+func (s *Store) GetTaskByID(id string, task *models.Task) (*models.Task, error) {
+	var selectedID int
 
 	query := "SELECT * FROM scheduler WHERE id = ?"
 	row := s.DB.QueryRow(query, id)
 
 	err := row.Scan(&selectedID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+	task.Id = strconv.Itoa(selectedID)
 	if err != nil {
-		return 0, err
+		return task, err
 	}
 
-	return selectedID, nil
-}
-
-func (s *Store) GetRepeatByID(id string, task *models.Task) (int64, string, error) {
-	var selectedID int64
-	var repeat string
-	query := "SELECT * FROM scheduler WHERE id = ?"
-	row := s.DB.QueryRow(query, id)
-
-	err := row.Scan(&selectedID, &task.Date, &task.Title, &task.Comment, &repeat)
-	if err != nil {
-		return 0, "", err
-	}
-
-	return selectedID, repeat, nil
-
+	return task, nil
 }
 
 func (s *Store) UpdateTask(task models.Task) error {

@@ -160,13 +160,12 @@ func (s *APIServer) GetTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	selectedID, err := s.store.GetTaskByID(id, &task)
+	_, err := s.store.GetTaskByID(id, &task)
+
 	if err != nil {
 		http.Error(w, `{"error": "Задача не найдена"}`, http.StatusBadRequest)
 		return
 	}
-
-	task.Id = fmt.Sprint(selectedID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
@@ -252,14 +251,11 @@ func (s *APIServer) DoneTask() http.HandlerFunc {
 			return
 		}
 
-		selectedID, repeat, err := s.store.GetRepeatByID(id, &task)
+		_, err := s.store.GetTaskByID(id, &task)
 		if err != nil {
 			http.Error(w, `{"error": "Задача не найдена"}`, http.StatusBadRequest)
 			return
 		}
-
-		task.Id = fmt.Sprint(selectedID)
-		task.Repeat = repeat
 
 		if task.Repeat == "" {
 			err := s.store.DeleteTask(task.Id)
