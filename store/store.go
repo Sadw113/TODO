@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -165,9 +166,12 @@ func (s *Store) UpdateTask(task models.Task) error {
 		return err
 	}
 
-	_, err = res.RowsAffected()
+	count, err := res.RowsAffected()
 	if err != nil {
 		return err
+	}
+	if count == 0 {
+		return errors.New("not found")
 	}
 
 	return nil
@@ -192,9 +196,12 @@ func (s *Store) DeleteTask(id string) error {
 		return err
 	}
 
-	_, err = res.RowsAffected()
+	count, err := res.RowsAffected()
 	if err != nil {
 		return err
+	}
+	if count == 0 {
+		return errors.New("not found")
 	}
 
 	return nil
